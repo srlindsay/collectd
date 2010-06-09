@@ -4014,6 +4014,8 @@ AC_COLLECTD([getifaddrs],[enable],  [feature], [getifaddrs under Linux])
 dependency_warning="no"
 dependency_error="no"
 
+plugin_aggregator="yes"
+
 plugin_ascent="no"
 plugin_battery="no"
 plugin_bind="no"
@@ -4307,6 +4309,7 @@ AC_ARG_ENABLE([all-plugins],
 
 m4_divert_once([HELP_ENABLE], [])
 
+AC_PLUGIN([aggregator],  [$plugin_aggregator], [Aggregation plugin])
 AC_PLUGIN([apache],      [$with_libcurl],      [Apache httpd statistics])
 AC_PLUGIN([apcups],      [yes],                [Statistics of UPSes by APC])
 AC_PLUGIN([apple_sensors], [$with_libiokit],   [Apple's hardware sensors])
@@ -4625,6 +4628,7 @@ Configuration:
     perl  . . . . . . . . $with_perl_bindings
 
   Modules:
+    aggregator  . . . . . $enable_aggregator
     apache  . . . . . . . $enable_apache
     apcups  . . . . . . . $enable_apcups
     apple_sensors . . . . $enable_apple_sensors
