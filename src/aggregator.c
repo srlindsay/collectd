@@ -191,7 +191,6 @@ typedef enum {
 #define MAX_STR_SIZE 256
 
 #define PARSE_FIELD(start, buffer, next_start, next_state) \
-	DEBUG("parsing: %s", c);                               \
 	if (*c == ' ') {                                       \
 		str_len = c-(start);                               \
 		if (str_len > MAX_STR_SIZE) {                      \
