@@ -398,8 +398,8 @@ typedef struct pathtypes_st {
 }pathtypes_t;
 
 static pathtypes_t paths[] = {
-	{"/opt/collectd/var/run/collectd-aggregator", AG_TYPE_SUM},
-	{"/opt/collectd/var/run/collectd-aggregator-avg", AG_TYPE_AVG},
+	{"/var/run/collectd-aggregator", AG_TYPE_SUM},
+	{"/var/run/collectd-aggregator-avg", AG_TYPE_AVG},
 	{NULL, 0}
 };
 

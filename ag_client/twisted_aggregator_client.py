@@ -1,9 +1,9 @@
-
+import logging
 from twisted.internet import reactor, protocol
 
 socketpath = {
-		'sum':'/opt/collectd/var/run/collectd-aggregator',
-		'avg':'/opt/collectd/var/run/collectd-aggregator-avg'
+		'sum':'/var/run/collectd-aggregator',
+		'avg':'/var/run/collectd-aggregator-avg'
 		}
 
 ag_factory = {}
