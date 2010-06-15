@@ -40,7 +40,7 @@ void buf_append_chain(buf_t **chain, buf_t *toappend);
 buf_t* buf_output_chain(buf_t *b);
 
 int chain_memcpy(void *dest, chain_slice_t slice, int max_size);
-buf_t* chain_free_offset (buf_t *start, chain_offset_t end);
+void chain_free_offset (buf_t **start, chain_offset_t end);
 chain_offset_t chain_next(buf_t *b, char *c);
 
 #endif

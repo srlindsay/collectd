@@ -275,7 +275,7 @@ static char* parse(ag_t *ag, conn_t *conn) {
 							handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
 
 							chain_offset_t end = {b, c};
-							conn->in = chain_free_offset(conn->in, end);
+							chain_free_offset(&conn->in, end);
 
 							/* reset everything */
 							state = AG_START;

@@ -140,22 +140,24 @@ int chain_memcpy(void *dest, chain_slice_t slice, int max_size) {
 	return d - dest;
 }
 
-buf_t* chain_free_offset (buf_t *start, chain_offset_t end) {
+void chain_free_offset (buf_t **start, chain_offset_t end) {
 	buf_t *b, *next;
 
-	b = end.b;
+	b = *start;
 	while (b != end.b && b != NULL) {
 		next = b->next;
 		buf_free(b);
 		b = next;
 	}
-	if (end.loc == b->last) {
-		buf_free(b);
-		return NULL;
-	} else {
-		b->first = end.loc;
-		return b;
+	if (b) {
+		if (b->last == end.loc) {
+			/* end points to the actual end of the chain, free everything */
+			buf_free(b);
+		} else {
+			b->first = end.loc;
+		}
 	}
+	*start = b;
 }
 
 chain_offset_t chain_next (buf_t *b, char *c) {
