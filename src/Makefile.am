@@ -112,7 +112,7 @@ CLEANFILES =
 
 if BUILD_PLUGIN_AGGREGATOR
 pkglib_LTLIBRARIES += aggregator.la
-aggregator_la_SOURCES = aggregator.c
+aggregator_la_SOURCES = aggregator.c buf.c conn.c
 aggregator_la_LDFLAGS = -module -avoid-version -levent -lglib-2.0
 aggregator_la_CFLAGS = $(AM_CFLAGS) -I/usr/include/glib-2.0 -I/usr/lib64/glib-2.0/include
 aggregator_la_LIBADD =
