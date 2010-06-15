@@ -5,12 +5,8 @@
 #include "plugin.h"
 #include "configfile.h"
 
-#include "utils_cmd_flush.h"
-#include "utils_cmd_getval.h"
-#include "utils_cmd_getthreshold.h"
-#include "utils_cmd_listval.h"
-#include "utils_cmd_putval.h"
-#include "utils_cmd_putnotif.h"
+#include "buf.h"
+#include "conn.h"
 
 /* Folks without pthread will need to disable this plugin. */
 #include <pthread.h>
@@ -32,18 +28,16 @@
 #define DEFAULT_SOCK_FILE "/var/run/collectd-aggregator"
 #define MAX_VALS 64
 
-static void read_cb (int fd, short ev_type, void *data);
+static void read_cb (conn_t *conn, void *data);
 
 static pthread_t server_thread = (pthread_t ) 0;
 
-static char   *sock_file = NULL;
 static int     default_interval = 60;
 static int     sock_perms = S_IRWXU | S_IRWXG | S_IRWXO;
 
-typedef struct buf_st buf_t;
-
 static const char *config_keys[] = {
 	"SocketFile",
+	"SocketFileAvg",
 	"DefaultInterval"
 };
 
@@ -80,11 +74,6 @@ typedef struct ag_client_st {
 	int size;
 	char *pending;
 } ag_client_t;
-
-typedef struct ag_value_st {
-	double val;
-	struct ag_value_st *next;
-} ag_value_t;
 
 static void flush_cb (int fd, short ev_type, void *data) {
 	ag_key_entry_t *entry = data;
@@ -190,29 +179,28 @@ typedef enum {
 
 #define MAX_STR_SIZE 256
 
-#define PARSE_FIELD(start, buffer, next_start, next_state) \
+#define PARSE_FIELD(start_offset, buffer, next_start, next_state) \
 	if (*c == ' ') {                                       \
-		str_len = c-(start);                               \
-		if (str_len > MAX_STR_SIZE) {                      \
-			WARNING("aggregator plugin: "                  \
-					"key field size greater"               \
-					"than 256, truncating...");            \
-			str_len = MAX_STR_SIZE - 1;                    \
-		}                                                  \
-		memcpy ((buffer), (start), str_len);               \
+		chain_slice_t s;                                   \
+		s.start = (start_offset);                          \
+		s.end.b = b;                                       \
+		s.end.loc = c;                                     \
+		str_len = chain_memcpy ((buffer), s, MAX_STR_SIZE);          \
 		(buffer)[str_len] = '\0';                          \
+		printf ("parsed out this: %s\n", (buffer));        \
 		DEBUG("parsed: %s", (buffer));                     \
-		(next_start) = c+1;                                \
+		next_start = chain_next(b, c);                     \
 		state = (next_state);                              \
 	}
 
-static char* parse(ag_t *ag, char *buf, int sz) {
+static char* parse(ag_t *ag, conn_t *conn) {
 	char *c;
-	char *plugin_start = NULL,
-		 *plugin_inst_start = NULL,
-		 *type_inst_start = NULL,
-		 *val_start = NULL;
 	char *parsed = NULL;
+
+	chain_offset_t plugin_start = {0},
+				   plugin_inst_start = {0},
+				   type_inst_start = {0},
+				   val_start = {0};
 
 	int str_len;
 
@@ -224,112 +212,94 @@ static char* parse(ag_t *ag, char *buf, int sz) {
 	int n_vals = 0;
 
 	state_t state = AG_START;
+	buf_t *b;
 
-	for (c = buf; c < buf+sz; c++) {
-		switch (state) {
-			case AG_START:
-				plugin_start = c;
-				state = AG_PLUGIN;
-				break;
-			case AG_PLUGIN:
-				PARSE_FIELD(plugin_start, plugin, plugin_inst_start, AG_PLUGIN_INST);
-				break;
-			case AG_PLUGIN_INST:
-				PARSE_FIELD(plugin_inst_start, plugin_inst, type_inst_start, AG_TYPE_INST);
-				break;
-			case AG_TYPE_INST:
-				PARSE_FIELD(type_inst_start, type_inst, val_start, AG_VALUES);
-				break;
-			case AG_VALUES:
-				switch (*c) {
-					case ':':
-						if (n_vals < MAX_VALS) {
-							vals[n_vals++] = strtod(val_start, NULL);
-						} else {
-							WARNING("aggregator plugin: more than 64 values "
-									"in this packet.  Dropping the extra.");
-						}
-						val_start = c+1;
-						break;
-					case '\n':
-						if (n_vals < MAX_VALS) {
-							vals[n_vals++] = strtod(val_start, NULL);
-						} else {
-							WARNING("aggregator plugin: more than 64 values "
-									"in this packet.  Dropping the extra.");
-						}
-						/* read a complete line, process these values */
-						handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
+	for (b = conn->in; b; b=b->next) {
+		for (c = b->first; c < b->last; c++) {
+			switch (state) {
+				case AG_START:
+					plugin_start.b = b;
+					plugin_start.loc = c;
+					state = AG_PLUGIN;
+					break;
+				case AG_PLUGIN:
+					PARSE_FIELD(plugin_start, plugin, plugin_inst_start, AG_PLUGIN_INST);
+					break;
+				case AG_PLUGIN_INST:
+					PARSE_FIELD(plugin_inst_start, plugin_inst, type_inst_start, AG_TYPE_INST);
+					break;
+				case AG_TYPE_INST:
+					PARSE_FIELD(type_inst_start, type_inst, val_start, AG_VALUES);
+					break;
+				case AG_VALUES:
+					switch (*c) {
+						case ':':
+							if (n_vals < MAX_VALS) {
+								if (val_start.b == b) {
+									vals[n_vals++] = strtod(val_start.loc, NULL);
+								} else {
+									char valbuf[256];
+									chain_slice_t s;
+									s.start = val_start;
+									s.end.b = b;
+									s.end.loc = c;
+									chain_memcpy(valbuf, s, 256);
+									vals[n_vals++] = strtod(valbuf, NULL);
+								}
+							} else {
+								WARNING("aggregator plugin: more than 64 values "
+										"in this packet.  Dropping the extra.");
+							}
+							val_start.b = b;
+							val_start.loc = c+1;
+							break;
+						case '\n':
+							if (n_vals < MAX_VALS) {
+								if (val_start.b == b) {
+									vals[n_vals++] = strtod(val_start.loc, NULL);
+								} else {
+									char valbuf[256];
+									chain_slice_t s;
+									s.start = val_start;
+									s.end.b = b;
+									s.end.loc = c;
+									chain_memcpy(valbuf, s, 256);
+									vals[n_vals++] = strtod(valbuf, NULL);
+								}
+							} else {
+								WARNING("aggregator plugin: more than 64 values "
+										"in this packet.  Dropping the extra.");
+							}
+							/* read a complete line, process these values */
+							DEBUG("finished a complete line");
+							handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
 
-						/* reset everything */
-						state = AG_START;
-						parsed = c+1;
-						n_vals = 0;
-						break;
-				}
-				break;
+							chain_offset_t end = {b, c};
+							conn->in = chain_free_offset(conn->in, end);
+
+							/* reset everything */
+							state = AG_START;
+							parsed = c+1;
+							n_vals = 0;
+							break;
+					}
+					break;
+			}
 		}
 	}
 	return parsed;
 }
 
-static ag_client_t *ag_client_new(ag_t *ag, int newfd) {
-	ag_client_t *client = malloc(sizeof(ag_client_t));
-	if (!client) {
-		ERROR("aggregator plugin: failed to allocate client");
-		return NULL;
-	}
-
-	client->ag = ag;
-	client->size = 4096;
-	client->used = 0;
-
-	client->pending = malloc(client->size);
-	if (!client->pending) {
-		ERROR("aggregator plugin: failed to allocate pending buffer");
-		return NULL;
-	}
-
-	return client;
+static void read_cb (conn_t *conn, void *data) {
+	DEBUG("in read_cb");
+	ag_t *ag = conn->data;
+	buf_print_chain(conn->in);
+	parse(ag, conn);
+	buf_print_chain(conn->in);
 }
 
-static void ag_client_free(ag_client_t *c) {
-	event_del(&c->read_ev);
-	free(c->pending);
-	free(c);
-}
-
-static void read_cb (int fd, short ev_type, void *data) {
-
-	ag_client_t *client = data;
-	char buffer[4096];
-	ssize_t recvd;
-
-	DEBUG("aggregator plugin: read_cb");
-
-	recvd = recv(fd, buffer, 4096, 0);
-
-	if (recvd < 0) {
-		WARNING("aggregator plugin: connection error: %s", strerror(errno));
-		ag_client_free(client);
-	} else if (recvd == 0) {
-		DEBUG("aggregator plugin: connection closed");
-		ag_client_free(client);
-	} else {
-		if (client->used + recvd > client->size) {
-			client->pending = realloc(client->pending, client->size + recvd);
-			client->size += recvd;
-		}
-		memcpy(client->pending + client->used, buffer, recvd);
-		client->used += recvd;
-		char *parsed = parse(client->ag, client->pending, client->used);
-		if (parsed) {
-			int parsed_sz = parsed - client->pending;
-			memmove(client->pending, parsed, 
-					client->used - parsed_sz);
-			client->used -= parsed_sz;
-		}
-	}
+static void err_cb (conn_t *conn, short ev_type, void *data) {
+	DEBUG("in error_cb");
 }
 
 static void accept_cb (int fd, short ev_type, void *data) {
@@ -338,9 +308,16 @@ static void accept_cb (int fd, short ev_type, void *data) {
 	DEBUG("aggregator plugin: accept_cb");
 	int newfd = accept(fd, NULL, NULL);
 
-	ag_client_t *client = ag_client_new(ag, newfd);
-	event_set(&client->read_ev, newfd, EV_READ | EV_PERSIST, read_cb, client);
-	event_add(&client->read_ev, NULL);
+	conn_t *conn = conn_new();
+	conn->fd = newfd;
+	conn->data = ag;
+
+	conn->read_handler = read_cb;
+	conn->error_handler = err_cb;
+
+	conn->want_read = 1;
+
+	conn_register_events(conn);
 }
 
 static int setup_socket (const char *path) {
@@ -448,8 +425,27 @@ static int ag_config(const char *key, const char *val) {
 		if (new_sock_file == NULL)
 			return (1);
 
-		sfree (sock_file);
-		sock_file = new_sock_file;
+		pathtypes_t *p;
+		for (p=paths; p->socket_path; p++) {
+			if (p->type == AG_TYPE_SUM) {
+				p->socket_path = new_sock_file;
+				break;
+			}
+		}
+	}
+	else if (strcasecmp (key, "SocketFileAvg") == 0)
+	{
+		char *new_sock_file = strdup (val);
+		if (new_sock_file == NULL)
+			return (1);
+
+		pathtypes_t *p;
+		for (p=paths; p->socket_path; p++) {
+			if (p->type == AG_TYPE_AVG) {
+				p->socket_path = new_sock_file;
+				break;
+			}
+		}
 	}
 	else if (strcasecmp (key, "DefaultInterval") == 0)
 	{

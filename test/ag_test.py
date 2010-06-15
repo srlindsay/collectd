@@ -2,14 +2,14 @@ import socket
 import random
 import time
 
-def connect(path='/opt/collectd/var/run/collectd-aggregator'):
+def connect(path='/var/run/collectd-aggregator-avg'):
 	s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 	s.connect(path)
 
 	return s
 
 def send_data(s, key, val):
-	buffer = "%s-1 %f\n" % (key, val)
+	buffer = "%s 1 1 %f\n" % (key, val)
 	s.sendall(buffer)
 
 if __name__ == "__main__":
