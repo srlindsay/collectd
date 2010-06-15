@@ -180,17 +180,15 @@ typedef enum {
 #define MAX_STR_SIZE 256
 
 #define PARSE_FIELD(start_offset, buffer, next_start, next_state) \
-	if (*c == ' ') {                                       \
-		chain_slice_t s;                                   \
-		s.start = (start_offset);                          \
-		s.end.b = b;                                       \
-		s.end.loc = c;                                     \
-		str_len = chain_memcpy ((buffer), s, MAX_STR_SIZE);          \
-		(buffer)[str_len] = '\0';                          \
-		printf ("parsed out this: %s\n", (buffer));        \
-		DEBUG("parsed: %s", (buffer));                     \
-		next_start = chain_next(b, c);                     \
-		state = (next_state);                              \
+	if (*c == ' ') {                                              \
+		chain_slice_t s;                                          \
+		s.start = (start_offset);                                 \
+		s.end.b = b;                                              \
+		s.end.loc = c;                                            \
+		str_len = chain_memcpy ((buffer), s, MAX_STR_SIZE);       \
+		(buffer)[str_len] = '\0';                                 \
+		next_start = chain_next(b, c);                            \
+		state = (next_state);                                     \
 	}
 
 static char* parse(ag_t *ag, conn_t *conn) {
@@ -293,9 +291,7 @@ static char* parse(ag_t *ag, conn_t *conn) {
 static void read_cb (conn_t *conn, void *data) {
 	DEBUG("in read_cb");
 	ag_t *ag = conn->data;
-	buf_print_chain(conn->in);
 	parse(ag, conn);
-	buf_print_chain(conn->in);
 }
 
 static void err_cb (conn_t *conn, short ev_type, void *data) {
