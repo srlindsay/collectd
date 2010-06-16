@@ -191,6 +191,13 @@ typedef enum {
 		state = (next_state);                                     \
 	}
 
+/* This is a pretty ghetto parser.  If it parses a partial line, it won't
+ * save the state and will have to reparse everything the next time through.
+ * Not a huge issue, but a little bit dirty.
+ *
+ * Also, it memcpy's the fields as they're being parsed, which is kind of
+ * lame.  It really should just mark the offsets and save the memcpy.
+ */
 static char* parse(ag_t *ag, conn_t *conn) {
 	char *c;
 	char *parsed = NULL;
