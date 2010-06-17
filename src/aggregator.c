@@ -67,14 +67,6 @@ typedef struct ag_key_entry_st {
 	struct event flush_ev;
 } ag_key_entry_t;
 
-typedef struct ag_client_st {
-	ag_t *ag;
-	struct event read_ev;
-	int used;
-	int size;
-	char *pending;
-} ag_client_t;
-
 static void flush_cb (int fd, short ev_type, void *data) {
 	ag_key_entry_t *entry = data;
 	int should_push = 1;
@@ -95,7 +87,12 @@ static void flush_cb (int fd, short ev_type, void *data) {
 			break;
 	}
 
-	DEBUG("flush_cb called for key %s, val: %g", entry->key, values[0].gauge);
+	if (should_push) {
+		DEBUG("flush_cb called for key %s, val: %g", entry->key, values[0].gauge);
+	} else {
+		DEBUG("flush_cb called for key %s, but no new values to push", 
+				entry->key);
+	}
 
 	entry->vl.values = values;
 	entry->vl.values_len = 1;
@@ -304,7 +301,7 @@ static void parse(ag_t *ag, conn_t *conn) {
 								DEBUG("finished a complete line");
 								handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
 
-								chain_offset_t end = {b, c};
+								chain_offset_t end = chain_next(b,c);
 								chain_free_offset(&conn->in, end);
 
 								/* reset everything */
@@ -325,10 +322,6 @@ static void read_cb (conn_t *conn, void *data) {
 	parse(ag, conn);
 }
 
-static void err_cb (conn_t *conn, short ev_type, void *data) {
-	DEBUG("in error_cb");
-}
-
 static void accept_cb (int fd, short ev_type, void *data) {
 	ag_t *ag = data;
 
@@ -340,7 +333,6 @@ static void accept_cb (int fd, short ev_type, void *data) {
 	conn->data = ag;
 
 	conn->read_handler = read_cb;
-	conn->error_handler = err_cb;
 
 	conn->want_read = 1;
 
