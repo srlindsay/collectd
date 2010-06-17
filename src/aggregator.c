@@ -77,7 +77,7 @@ typedef struct ag_client_st {
 
 static void flush_cb (int fd, short ev_type, void *data) {
 	ag_key_entry_t *entry = data;
-
+	int should_push = 1;
 	value_t values[1];
 
 	switch (entry->ag->type) {
@@ -85,8 +85,13 @@ static void flush_cb (int fd, short ev_type, void *data) {
 			values[0].gauge = entry->total;
 			break;
 		case AG_TYPE_AVG:
-			values[0].gauge = entry->count ? 
-				(entry->total / (double) entry->count) : 0.0;
+			/* if there are no data points, just don't dispatch any values. */
+			if (entry->count == 0) {
+				should_push = 0;
+			} else {
+				values[0].gauge = entry->count ? 
+					(entry->total / (double) entry->count) : 0.0;
+			}
 			break;
 	}
 
@@ -96,14 +101,18 @@ static void flush_cb (int fd, short ev_type, void *data) {
 	entry->vl.values_len = 1;
 	entry->vl.time = time(NULL);
 
-	plugin_dispatch_values(&entry->vl);
-
 	entry->total = 0.0;
 	entry->count = 0;
 	evtimer_add(&entry->flush_ev, &entry->interval);
+
+	if (should_push) {
+		plugin_dispatch_values(&entry->vl);
+	}
 }
 
-static ag_key_entry_t *ag_key_entry_new(ag_t *ag, const char *key) {
+static ag_key_entry_t *ag_key_entry_new(ag_t *ag, const char *key, 
+		const char *plugin, const char *plugin_instance, 
+		const char *type_instance) {
 	ag_key_entry_t *entry;
 
 	entry = malloc(sizeof(ag_key_entry_t));
@@ -120,10 +129,14 @@ static ag_key_entry_t *ag_key_entry_new(ag_t *ag, const char *key) {
 
 	value_list_t *vl = &entry->vl;
 
+	/* TODO: fully qual'ed hostname? */
 	sstrncpy(vl->host, hostname_g, sizeof(vl->host));
+	/* TODO: maybe replace gauge with a custom dataset, if possible */
 	sstrncpy(vl->type, "gauge", sizeof(vl->type));
 
-	sscanf(entry->key, "%[^-]-%[^-]-%s", vl->plugin, vl->plugin_instance, vl->type_instance);
+	sstrncpy(vl->plugin, plugin, sizeof(vl->plugin));
+	sstrncpy(vl->plugin_instance, plugin_instance, sizeof(vl->plugin_instance));
+	sstrncpy(vl->type_instance, type_instance, sizeof(vl->type_instance));
 
 	DEBUG("host: %s, plugin: %s, plugin-instance:%s, "
 			"type: %s, type-instance:%s", 
@@ -140,13 +153,14 @@ static void build_key(char *buffer, int buf_sz, const char *plugin,
 
 static void handle_vals(ag_t *ag, const char *plugin, const char *plugin_inst,
 		const char *type_inst, double *vals, int n_vals) {
-	char key[1024];
-	build_key (key, 1024, plugin, plugin_inst, type_inst);
 	ag_key_entry_t *entry;
+	char key[1024];
+
+	build_key (key, 1024, plugin, plugin_inst, type_inst);
 	entry = g_hash_table_lookup(ag->keys, key);
 	if (!entry) {
 		DEBUG("creating entry for %s", key);
-		entry = ag_key_entry_new(ag, key);
+		entry = ag_key_entry_new(ag, key, plugin, plugin_inst, type_inst);
 		g_hash_table_insert(ag->keys, entry->key, entry);
 		evtimer_set(&entry->flush_ev, flush_cb, entry);
 		evtimer_add(&entry->flush_ev, &entry->interval); 
@@ -198,16 +212,15 @@ typedef enum {
  * Also, it memcpy's the fields as they're being parsed, which is kind of
  * lame.  It really should just mark the offsets and save the memcpy.
  */
-static char* parse(ag_t *ag, conn_t *conn) {
+static void parse(ag_t *ag, conn_t *conn) {
 	char *c;
-	char *parsed = NULL;
-
 	chain_offset_t plugin_start = {0},
 				   plugin_inst_start = {0},
 				   type_inst_start = {0},
 				   val_start = {0};
 
 	int str_len;
+
 
 	char plugin[MAX_STR_SIZE];
 	char plugin_inst[MAX_STR_SIZE];
@@ -221,6 +234,12 @@ static char* parse(ag_t *ag, conn_t *conn) {
 
 	for (b = conn->in; b; b=b->next) {
 		for (c = b->first; c < b->last; c++) {
+
+			if (*c == '-') {
+				/* hyphens have a special meaning for collectd, so replace
+				 * them with underscores */
+				*c = '_';
+			}
 			switch (state) {
 				case AG_START:
 					plugin_start.b = b;
@@ -239,60 +258,65 @@ static char* parse(ag_t *ag, conn_t *conn) {
 				case AG_VALUES:
 					switch (*c) {
 						case ':':
-							if (n_vals < MAX_VALS) {
-								if (val_start.b == b) {
-									vals[n_vals++] = strtod(val_start.loc, NULL);
-								} else {
-									char valbuf[256];
-									chain_slice_t s;
-									s.start = val_start;
-									s.end.b = b;
-									s.end.loc = c;
-									chain_memcpy(valbuf, s, 256);
-									vals[n_vals++] = strtod(valbuf, NULL);
-								}
-							} else {
-								WARNING("aggregator plugin: more than 64 values "
-										"in this packet.  Dropping the extra.");
-							}
-							val_start.b = b;
-							val_start.loc = c+1;
-							break;
 						case '\n':
 							if (n_vals < MAX_VALS) {
 								if (val_start.b == b) {
-									vals[n_vals++] = strtod(val_start.loc, NULL);
+									char *end;
+									double val = strtod(val_start.loc, &end);
+									if (val == 0 && end == val_start.loc) {
+										WARNING("aggregator plugin: expected "
+												"something that would "
+												"evaluate to a double, but "
+												"received: %s", val_start.loc);
+									} else {
+										vals[n_vals++] = val;
+									}
 								} else {
 									char valbuf[256];
 									chain_slice_t s;
-									s.start = val_start;
+									s.start = val_start
+;
 									s.end.b = b;
 									s.end.loc = c;
 									chain_memcpy(valbuf, s, 256);
-									vals[n_vals++] = strtod(valbuf, NULL);
+									char *end;
+									double val = strtod(valbuf, &end);
+									if (val == 0 && end == val_start.loc) {
+										WARNING("aggregator plugin: expected "
+												"something that would "
+												"evaluate to a double, but "
+												"received: %s", val_start.loc);
+									} else {
+										vals[n_vals++] = val;
+									}
 								}
 							} else {
 								WARNING("aggregator plugin: more than 64 values "
 										"in this packet.  Dropping the extra.");
 							}
-							/* read a complete line, process these values */
-							DEBUG("finished a complete line");
-							handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
+							if (*c == ':') {
+								chain_offset_t next;
+								next = chain_next(b,c);
+								val_start.b = next.b;
+								val_start.loc = next.loc;
+							} else {
+								/* read a complete line, process these values */
+								DEBUG("finished a complete line");
+								handle_vals(ag, plugin, plugin_inst, type_inst, vals, n_vals);
 
-							chain_offset_t end = {b, c};
-							chain_free_offset(&conn->in, end);
+								chain_offset_t end = {b, c};
+								chain_free_offset(&conn->in, end);
 
-							/* reset everything */
-							state = AG_START;
-							parsed = c+1;
-							n_vals = 0;
+								/* reset everything */
+								state = AG_START;
+								n_vals = 0;
+							}
 							break;
 					}
 					break;
 			}
 		}
 	}
-	return parsed;
 }
 
 static void read_cb (conn_t *conn, void *data) {
@@ -378,7 +402,7 @@ typedef struct pathtypes_st {
 }pathtypes_t;
 
 static pathtypes_t paths[] = {
-	{"/var/run/collectd-aggregator", AG_TYPE_SUM},
+	{"/var/run/collectd-aggregator-sum", AG_TYPE_SUM},
 	{"/var/run/collectd-aggregator-avg", AG_TYPE_AVG},
 	{NULL, 0}
 };
@@ -422,8 +446,9 @@ static void *ag_server_thread (void __attribute__((unused)) *arg) {
 
 static int ag_config(const char *key, const char *val) {
 	DEBUG("aggregator plugin: ag_config");
-	if (strcasecmp (key, "SocketFile") == 0)
+	if (strcasecmp (key, "SocketFileSum") == 0)
 	{
+		/* this would get leaked if we call this twice. */
 		char *new_sock_file = strdup (val);
 		if (new_sock_file == NULL)
 			return (1);
@@ -438,6 +463,7 @@ static int ag_config(const char *key, const char *val) {
 	}
 	else if (strcasecmp (key, "SocketFileAvg") == 0)
 	{
+		/* this would get leaked if we call this twice. */
 		char *new_sock_file = strdup (val);
 		if (new_sock_file == NULL)
 			return (1);
@@ -453,6 +479,11 @@ static int ag_config(const char *key, const char *val) {
 	else if (strcasecmp (key, "DefaultInterval") == 0)
 	{
 		default_interval = (int) strtol(val, NULL, 10);
+		if (default_interval == 0) {
+			WARNING("aggregation plugin: You set the default interval to 0! "
+					"Why would you do that?  Are you confused?  Or drunk?");
+			default_interval = 10;
+		}
 	}
 	else
 	{
