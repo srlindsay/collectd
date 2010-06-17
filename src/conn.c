@@ -89,6 +89,7 @@ int buf_chain_recv(int fd, buf_t **in) {
 				/* all buffers full, add a new one */
 				b->next = buf_new();
 				b = b->next;
+				to_recv = b->end - b->last;
 				break;
 			}
 		}
@@ -168,7 +169,9 @@ void conn_handler(int fd, short ev_type, void *data) {
 		int nb;
 		nb = buf_chain_recv(fd, &conn->in);
 		if (nb < 0) {
-			conn->error_handler(conn, EV_READ, &nb);
+			if (conn->error_handler) {
+				conn->error_handler(conn, EV_READ, &nb);
+			}
 			goto close_connection;
 		} else if (nb == 0) { 
 			if (conn->read_close_handler) {
