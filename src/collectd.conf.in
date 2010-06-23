@@ -50,6 +50,7 @@
 # to missing dependencies or because they have been deactivated explicitly.  #
 ##############################################################################
 
+@BUILD_PLUGIN_AGGREGATOR_TRUE@LoadPlugin aggregator
 #@BUILD_PLUGIN_APACHE_TRUE@LoadPlugin apache
 #@BUILD_PLUGIN_APCUPS_TRUE@LoadPlugin apcups
 #@BUILD_PLUGIN_APPLE_SENSORS_TRUE@LoadPlugin apple_sensors
@@ -144,6 +145,12 @@
 # In this section configuration stubs for each plugin are provided. A desc-  #
 # ription of those options is available in the collectd.conf(5) manual page. #
 ##############################################################################
+
+#<Plugin aggregator>
+#   SocketFileSum "/var/run/collectd-aggregator-sum"
+#   SocketFileAvg "/var/run/collectd-aggregator-avg"
+#   DefaultInterval 60
+#</Plugin>
 
 #<Plugin apache>
 #	URL "http://localhost/status?auto"
@@ -889,3 +896,6 @@
 #<Chain "PostCache">
 #  Target "write"
 #</Chain>
+#
+
+Include "/etc/collectd.d"

@@ -36,7 +36,7 @@ static int     default_interval = 60;
 static int     sock_perms = S_IRWXU | S_IRWXG | S_IRWXO;
 
 static const char *config_keys[] = {
-	"SocketFile",
+	"SocketFileSum",
 	"SocketFileAvg",
 	"DefaultInterval"
 };
@@ -271,8 +271,7 @@ static void parse(ag_t *ag, conn_t *conn) {
 								} else {
 									char valbuf[256];
 									chain_slice_t s;
-									s.start = val_start
-;
+									s.start = val_start;
 									s.end.b = b;
 									s.end.loc = c;
 									chain_memcpy(valbuf, s, 256);

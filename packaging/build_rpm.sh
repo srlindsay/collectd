@@ -17,4 +17,4 @@ mv $TARBALL ~/rpmbuild/SOURCES/.
 rpmbuild -ba ~/rpmbuild/SPECS/$SPEC
 
 mkdir -p dist
-cp ~/rpmbuild/RPMS/x86_64/collectd-*-${VER}*.rpm  dist
+cp ~/rpmbuild/RPMS/x86_64/collectd*-${VER}*.rpm  dist
