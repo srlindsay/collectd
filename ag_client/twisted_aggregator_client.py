@@ -18,8 +18,7 @@ def init():
 def send_data(plugin, plugin_instance="", type_instance="", value=0.0, method='avg'):
 	"""
 	builds the key that uniquely identifies the metric you're collecting.
-	"%(plugin)-%(plugin_inst
-ance)/gauge-%(type_instance)"
+	"%(plugin)-%(plugin_instance)/gauge-%(type_instance)"
 	For instance, if you're measuring a meeboasync metric, you could set
 	plugin=meeboasync, plugin_instance=<handler domain name>, 
 	type_instance=<specific metric>
