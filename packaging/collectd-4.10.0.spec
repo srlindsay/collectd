@@ -6,7 +6,7 @@ License: GPLv2
 Group: System Environment/Daemons
 URL: http://collectd.org/
 
-Source: collectd-%{version}.tar.gz
+Source: collectd-%{version}.tar
 #Patch0: %{name}-4.5.1-include-collectd.d.patch
 ### bug 468067 "pkg-config --libs OpenIPMIpthread" fails
 #Patch1: %{name}-4.5.1-configure-OpenIPMI.patch
@@ -161,6 +161,7 @@ This plugin collects information from virtualized guests.
 #%patch1 -p0
 #%patch2 -p1
 
+./build.sh
 sed -i.orig -e 's|-Werror||g' Makefile.in */Makefile.in
 
 
