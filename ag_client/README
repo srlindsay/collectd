@@ -1,0 +1,5 @@
+Twisted Aggregator Client
+Client for sending data to the collectd aggregation plugin
+
+#1.0.0 6/27/2010 
+- First!

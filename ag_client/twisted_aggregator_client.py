@@ -2,7 +2,7 @@ import logging
 from twisted.internet import reactor, protocol
 
 socketpath = {
-		'sum':'/var/run/collectd-aggregator',
+		'sum':'/var/run/collectd-aggregator-sum',
 		'avg':'/var/run/collectd-aggregator-avg'
 		}
 
